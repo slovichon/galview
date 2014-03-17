@@ -1,0 +1,5 @@
+AuthUserFile .htpasswd
+AuthName "albumview"
+AuthType Basic
+require valid-user
+SSLRequireSSL
