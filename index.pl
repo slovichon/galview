@@ -14,6 +14,7 @@ my $DIR = dirname $ENV{SCRIPT_FILENAME};
 my $FN_THUMBS = ".thumbs";
 my $FN_IDX = ".index";
 
+our %cfg;
 require "$DIR/.config";
 
 my $RESW = 120;
@@ -67,9 +68,10 @@ sub findpos {
 }
 
 sub loadalbum {
-	my ($fn_dir, $top) = @_;
+	my ($alnam, $top) = @_;
 
-	my $fn_tdir = "$fn_dir/$FN_THUMBS";
+	my $fn_dir = "$DIR/$alnam";
+	my $fn_tdir = "$DIR/$FN_THUMBS/$alnam";
 	unless (-e $fn_tdir) {
 		mkdir $fn_tdir or mydie("mkdir $fn_tdir: $!");
 	}
@@ -114,11 +116,11 @@ sub loadalbum {
 		next if
 		    $fn eq "." or
 		    $fn eq ".." or
-		    $fn eq "CVS" or
+		    $fn eq ".git" or
 		    $fn =~ /^\.ht/ or
 		    $fn =~ /\.pl$/ or
 		    $fn eq $FN_THUMBS;
-		$albums{$fn} = loadalbum("$fn_dir/$fn", 0) if
+		$albums{$fn} = loadalbum($fn, 0) if
 		    -d "$fn_dir/$fn";
 		if ($ad) {
 			$ad->{n}++;
@@ -137,22 +139,22 @@ sub loadalbum {
 sub thumb {
 	my ($alnam, $fn) = @_;
 	my $dir = "$DIR/$alnam";
-	my $thdir = "$dir/$FN_THUMBS";
+	my $thdir = "$DIR/$FN_THUMBS/$alnam";
 	my $th = "$thdir/$fn";
 	my $im = "$dir/$fn";
 	if (-f $im and !-e $th) {
 		if ($fn =~ /\.(?:MOV|mp4)$/i) {
-			system("/usr/local/bin/ffmpeg -r 1 -i $im -s ${RESW}x$RESH " .
-			    " -loglevel quiet -n -f image2 -vframes 1 $th >&2");
+			system("/usr/local/bin/ffmpeg -r 1 -i \Q$im\E -s ${RESW}x$RESH " .
+			    " -loglevel quiet -n -f image2 -vframes 1 \Q$th\E >&2");
 		} elsif (my $img = GD::Image->new($im)) {
 			my $res;
 			$res = int($RESH * $img->width / $img->height) . "x$RESH";
-			system("convert $im -quality $QUAL -scale $res -auto-orient $th &");
+			system("convert \Q$im\E -quality $QUAL -scale $res -auto-orient \Q$th\E &");
 		} else {
 			#print "$im: $!\n";
 		}
 	}
-	my @a = (qq{<img id="$fn" height="$RESH" src="$alnam/$FN_THUMBS/$fn" />});
+	my @a = (qq{<img id="$fn" height="$RESH" src="$FN_THUMBS/$alnam/$fn" />});
 	if ($fn =~ /\.(?:MOV|mp4)$/i) {
 		$a[0] =~ s/<img /<img onload="center(this.parentNode)" /;
 		@a = (qq{<div style="display: inline-block; position: relative">},
@@ -165,314 +167,28 @@ sub thumb {
 
 my $act = $q->param('act') || "";
 
-print $q->header, <<'EOF';
+print $q->header, <<EOF;
 <!DOCTYPE html>
 <html lang="en-US">
 	<head>
 		<title>$cfg{title} albums</title>
 		<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
-		<style type="text/css">
-		body {
-			background-color: #424;
-			padding: 0;
-			margin: 0;
-			color: white;
-			font-weight: bold;
-			text-shadow: .1em .1em .1em rgba(0,0,0,.5);
-		}
-		img {
-			border: 0;
-			margin: 0;
-			vertical-align: bottom;
-			align: left;
-		}
-		.album {
-			text-align: center;
-			display: inline-block;
-			margin: 5px;
-		}
-		form {
-			display: inline;
-		}
-		.album img {
-			border: 1px solid #303;
-			box-shadow: 3px 3px 3px rgba(0,0,0,.5);
-		}
-		a {
-			text-decoration: none;
-			color: white;
-			font-weight: bold;
-		}
-		#focus {
-			display: none;
-			position: fixed;
-			top: 0px;
-			left: 0px;
-			background-color: rgba(0,0,0,.8);
-			width: 100%;
-			height: 100%;
-			z-index: 10;
-			text-align: center;
-		}
-		img.meta {
-			position: absolute;
-			left: 0px;
-			top: 0px;
-			z-index: 5;
-			visibility: hidden;
-		}
-		#panel {
-			position: fixed;
-			padding-top: 4px;
-			left: 0px;
-			bottom: 0px;
-			width: 100%;
-			height: 35px;
-			background-color: #525;
-			text-align: center;
-			border-top: 1px solid #303;
-			box-shadow:
-			   0 2px 6px rgba(0,0,0,0.5),
-			   inset 0 1px rgba(255,255,255,0.3),
-			   inset 0 10px 5px rgba(255,255,255,0.1),
-			   inset 0 10px 20px rgba(255,255,255,0.25),
-			   inset 0 -15px 30px rgba(0,0,0,0.3);
-			z-index: 15;
-		}
-		.sel {
-			outline: 5px groove #f90;
-			-webkit-filter: sepia(73%);
-			transition: all .1s linear;
-		}
-		input[type='text'] {
-			background-color: #525;
-			border: 1px solid white;
-			padding: 1px;
-			padding-left: 2px;
-			padding-right: 2px;
-			color: #fff;
-			width: 100px;
-			font-weight: bold;
-			text-shadow: .1em .1em .1em rgba(0,0,0,.5);
-			box-shadow:
-			   0 1px 2px 2px rgba(0,0,0,0.25),
-			   inset 0 10px 5px rgba(255,255,255,0.1),
-			   inset 2px 3px 3px rgba(0,0,0,0.3);
-		}
-		h3 {
-			text-align: center;
-		}
+		<link rel="stylesheet" type="text/css" href="main.css" />
+		<script type="text/javascript" src="main.js"></script>
+		<style type='text/css'>
+			body {
+				background-color: $cfg{bgcolor};
+			}
+			#panel {
+				background-color: $cfg{bgcolor};
+			}
 		</style>
-		<script type="text/javascript">
-			function getObj(id) {
-				return (document.getElementById(id))
-			}
-
-			function cancelBubble(e) {
-				if (!e)
-					e = window.event
-				if (e.stopPropagation)
-					e.stopPropagation()
-				if (e.cancelBubble)
-					e.cancelBubble = true
-			}
-
-			function thumbFocus(alnam, im, tags, caps) {
-				var o = getObj('focus')
-				o.style.display = 'block'
-				var w = window.innerWidth
-				var h = window.innerHeight
-				o.style.pixelWidth = w
-				o.style.pixelHeight = h
-				w = Math.round(.83 * w)
-				h = Math.round(.83 * h)
-				if (h > 25)
-					h -= 25
-				var st = '', sc = ''
-				for (var i in tags)
-					st += (st == '' ? '' : ', &nbsp; ') +
-					    tags[i] + '<sup><a href="?act=detag;' +
-						'album=' + alnam +
-						';tag=' + tags[i] + ';im=' + im +
-						'">x</a></sup>'
-				for (var i in caps)
-					sc += caps[i] + '<br />'
-				o.innerHTML =
-				    '<span onclick="cancelBubble(event)">' +
-				    '<img style="border: 2px solid black; ' +
-				      'box-shadow: 0px 4px 4px rgba(0,0,0,.5); ' +
-				      'max-width: ' + w + 'px;' +
-				      'max-height: ' + h + 'px" src="' +
-				    alnam + '/' + im + '" /><br />' +
-				    caps +
-				    'tags: &nbsp; ' + st + '<br />' +
-				    '<form action="#">' +
-				      '<input type="hidden" name="act" value="tag" />' +
-				      '<input type="hidden" name="album" value="' + alnam + '" />' +
-				      '<input type="hidden" name="im" value="' + im + '" />' +
-				      'add tag: &nbsp; ' +
-				      '<input type="text" name="tag" />' +
-				    '</form>' +
-				    '</span>'
-			}
-
-			function hideFocus() {
-				getObj('focus').style.display = 'none'
-			}
-
-			function displayAttrs(o) {
-				var s = ''
-				for (var i in o)
-					s += i + ': ' + o[i] +'\n'
-				alert(s)
-			}
-
-			function center(o) {
-				var b = o.childNodes[0]
-				var i = o.childNodes[1]
-				i.style.pixelLeft =
-				    b.clientWidth/2 -
-				    i.clientWidth/2
-				i.style.pixelTop =
-				    b.clientHeight/2 -
-				    i.clientHeight/2
-				i.style.visibility = 'visible'
-			}
-
-			var MOD_THUMB = 0
-			var MOD_SEL = 1
-			var actionMode = MOD_THUMB
-			var selIm = []
-			var albums = []
-
-			function startSel(type) {
-				resetSel()
-				actionMode = MOD_SEL
-			}
-
-			function selectIm(alnam, im) {
-				if (deselectIm(alnam, im))
-					return
-				selIm.push([alnam, im])
-				var o = getObj(im)
-				o.className += ' sel '
-			}
-
-			function deselectIm(alnam, im) {
-				for (var i = 0; i < selIm.length; i++) {
-					if (selIm[i][0] == alnam &&
-					    selIm[i][1] == im) {
-						selIm.splice(i, 1)
-						var o = getObj(im)
-						var s = o.className
-						o.className = s.replace(/\bsel\b/, '')
-						return 1
-					}
-				}
-				return 0
-			}
-
-			function resetSel() {
-				while (selIm.length > 0)
-					deselectIm(selIm[0][0], selIm[0][1])
-			}
-
-			function doAction(alnam, im, tags, caps) {
-				if (actionMode == MOD_THUMB)
-					thumbFocus(alnam, im, tags, caps)
-				else if (actionMode == MOD_SEL)
-					selectIm(alnam, im)
-			}
-
-			function gatherIm(f) {
-				for (var i in selIm) {
-					var e = document.createElement('input')
-					e.name = 'im'
-					e.type = 'hidden'
-					e.value = selIm[i][1]
-					f.appendChild(e)
-				}
-				//alert(f.innerHTML)
-			}
-
-			function batchClear() {
-				resetSel()
-				actionMode = MOD_THUMB
-				getObj('batch').innerHTML = ''
-			}
-
-			function batchTag(al) {
-				if (actionMode == MOD_SEL) {
-					batchClear()
-					return
-				}
-
-				startSel()
-
-				var o = getObj('batch')
-				o.innerHTML =
-				    ':&nbsp; <form action="?" onsubmit="gatherIm(this)">' +
-				       '<input type="hidden" name="act" value="tag" />' +
-				       '<input type="hidden" name="album" value="' + al + '" />' +
-				       '<input type="text" name="tag" />' +
-				    '</form>'
-			}
-
-			function promptNew(o) {
-				var lo = o.options[o.length - 1]
-				if (o.selectedIndex == o.length - 1)
-					lo.value = lo.text =
-					    prompt('New album name:')
-				else
-					lo.value = lo.text = 'new...'
-			}
-
-			function moveIm(al) {
-				if (actionMode == MOD_SEL) {
-					submit;
-					return
-				}
-
-				startSel()
-
-				var opts = ''
-				for (i in albums)
-					if (al != albums[i])
-						opts += '<option>' + albums[i] + '</option>'
-				opts += '<option>new...</option>'
-
-				var o = getObj('move')
-				o.innerHTML =
-				    '<form action="?" onsubmit="gatherIm(this)">' +
-				       '<input type="hidden" name="act" value="move" />' +
-				       '<input type="hidden" name="from" value="' + al + '" />' +
-				       '<select name="to" onchange="promptNew(this)">' +
-				       opts +
-				       '</select>' +
-				       '<input type="submit" value="Go" />' +
-				    '</form>'
-			}
-
-			function searchPrompt() {
-				var o = getObj('focus')
-				o.style.display = 'block'
-				o.innerHTML =
-				    '<span onclick="cancelBubble(event)">' +
-				     '<form action="?">' +
-					'<input type="hidden" name="act" value="search" />' +
-					'<br />' +
-					'search tags:<br />' +
-					'<input type="text" name="q" />' +
-				     '</form>' +
-				    '</span>'
-			}
-		</script>
 	</head>
 	<body>
 EOF
 $prhd = 1;
 
-my %albums = loadalbum($DIR, 1);
+my %albums = loadalbum(".", 1);
 
 sub ui_thumb {
 	my ($ad, $alnam, $im) = @_;
@@ -537,7 +253,7 @@ if ($act eq "tag") {
 			push @{ $ad->{taglist}{$im} }, $tag unless
 			    in_array($ad->{taglist}{$im}, $tag);
 		}
-		cachedata("$DIR/$alnam/$FN_THUMBS/$FN_IDX", $ad);
+		cachedata("$DIR/$FN_THUMBS/$alnam/$FN_IDX", $ad);
 		cachedata("$DIR/$FN_THUMBS/$FN_IDX", %albums);
 	} else {
 		mydie "No such album.";
@@ -560,7 +276,7 @@ if ($act eq "move") {
 		mydie("Invalid destination name.") unless
 		    $t_a =~ /^[A-Za-z0-9._ -]+$/;
 		mkdir($path_t);
-		mkdir("$path_t/$FN_THUMBS");
+		mkdir("$DIR/$FN_THUMBS/$t_a");
 	}
 
 	my @sav_im;
@@ -584,10 +300,10 @@ if ($act eq "move") {
 		push @{ $t_ad->{photos} }, $tim;
 		rename("$path_f/$im", "$path_t/$tim") or
 		    warn "rename $f_a/$im: $!\n";
-		unlink("$path_f/$FN_THUMBS/$im");
+		unlink("$DIR/$FN_THUMBS/$f_a/$im");
 	}
-	cachedata("$DIR/$t_a/$FN_THUMBS/$FN_IDX", $t_ad);
-	cachedata("$DIR/$f_a/$FN_THUMBS/$FN_IDX", $f_ad);
+	cachedata("$DIR/$FN_THUMBS/$t_a/$FN_IDX", $t_ad);
+	cachedata("$DIR/$FN_THUMBS/$f_a/$FN_IDX", $f_ad);
 	cachedata("$DIR/$FN_THUMBS/$FN_IDX", %albums);
 	$act = "album";
 	$q->param("album", $f_a);
